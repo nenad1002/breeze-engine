@@ -1,79 +1,41 @@
 # Breeze
 
-**Your server. Your workspace.**
+**Native CPU inference for quantized language models.**
 
 Created and maintained by **Nenad Banfic**. Project attribution is recorded in
 [NOTICE](NOTICE); separately attributed third-party components retain their
 original notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-Breeze turns a compatible CPU server into a local text-assistant service:
-a browser workspace for summaries and reviewed drafts, a streaming text API
-for your applications, and the native Python inference library underneath.
-It loads prepared quantized ONNX checkpoints directly; no hosted inference
-dependency is needed to process a request.
+Breeze is a CPU inference engine that combines native C++ kernels with a small
+Python API. It loads prepared quantized ONNX checkpoints directly and runs
+prefill and autoregressive decoding locally, without a GPU or hosted inference
+service.
 
-Start with the workspace below or the [deployment and API guide](SERVICE.md).
+- **Packed INT4/INT8 weights** with AVX-512 VNNI matrix multiplication.
+- **Two-pass INT16 activations** by default for the Qwen CPU decoder.
+- **Native decoder execution** with OpenMP and resident attention, convolution,
+  and recurrent state across decode steps.
 
-## Try the workspace
-
-Use Python 3.11 or newer. Run these commands from the repository root:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-serve.txt
-.venv/bin/python serve_breeze.py --demo
-```
-
-Open <http://127.0.0.1:8080>. The preview is clearly labeled **scripted**, needs
-no model, and is not a performance or answer-quality demonstration. The
-workspace includes streaming, multi-turn chat, editable work templates, stop,
-copy, connection controls, and real service status. It uses only local assets.
-
-If port 8080 is occupied, add `--port 8081` and open that port instead. For a
-remote VS Code workspace, forward the chosen port in the Ports panel.
-
-For native inference, build the kernel and supply a local dense Qwen3.5 bundle.
-The optional service keeps one model loaded with one active worker, bounded
-admission, bearer-key access, health checks and aggregate metrics. See
-[SERVICE.md](SERVICE.md) for CPU requirements, authentication, deployment and API
-limits. There is no automatic download or model conversion.
-
-## Model APIs
-
-| Public class | Model | Scope |
-|---|---|---|
-| `Qwen35CpuModel` | Dense Qwen3.5-9B / 27B | Text-only prefill and greedy decoding |
-| `Phi35CpuModel` | Phi-3.5 | Experimental batch-one prefill, 1-8 tokens only |
-| `Qwen35GpuModel` | Dense Qwen3.5-9B | Experimental CUDA prefill and decoding |
-| `Qwen35ReferenceModel` | Qwen3.5 | Graph-based development reference |
-| `InferenceSession` | Compatible operator graphs | Graph-based development reference |
-
-The native CPU backend requires Linux/x86-64 with AVX-512 VNNI and VBMI. Build
-the library on the target machine. CPU models use INT4/INT8 packed weights;
-Qwen3.5 defaults to INT16 two-pass activation quantization. Only one active
-sequence per model is supported. Native settings are process-global, so model
-calls and configuration changes must be serialized, even across model instances.
+Use Breeze directly from Python or through the command-line tools. The HTTP API
+and browser playground are optional interfaces to the same CPU engine.
 
 ## Setup
 
-Native development also requires a C++17 compiler with OpenMP (such as `g++`)
-and a CPU with the features listed above. JavaScript tests require Node.js 20
-or newer; Node.js is not needed to serve the playground. The optional browser
-test setup is documented in [SERVICE.md](SERVICE.md).
+Requirements: Python 3.11+, Linux/x86-64 with AVX-512 VNNI and VBMI, and a C++17
+compiler with OpenMP (such as `g++`). Build on the machine that will run inference.
+Run these commands from the repository root:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements-dev.txt
+.venv/bin/python -m pip install -r requirements-cpu.txt
 .venv/bin/python build_kernel.py
-OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 .venv/bin/python -B -m pytest tests -q
-node --test tests/test_web.mjs
 ```
 
-No model is downloaded, loaded, or executed during setup. Generated native
-libraries, bytecode, checkpoints, and measurement artifacts are not tracked.
-Run the native build and model tools from this source checkout. The shared
-library is compiled for the deployment CPU. For a minimal library-only
-environment, install `requirements-cpu.txt`.
+The CPU library needs NumPy, ONNX, and tokenizers; web and GPU dependencies are
+optional. Setup does not download or convert model weights. Supply a prepared
+local decoder bundle with matching configuration, tokenizer, and embeddings.
+See [checkpoint setup](SERVICE.md#connect-a-real-checkpoint) for the file contract.
+Generated libraries, checkpoints, and measurement artifacts are not tracked.
 
 ## Python example
 
@@ -119,14 +81,24 @@ with Qwen35CpuModel(model_dir / "model.onnx", max_seq=4096) as model:
   it automatically.
 
 Tokenization, application routing, document retrieval, and chat history are
-owned by the library caller. The optional service supplies text tokenization,
-request routing and a browser client; retrieval and business-system integration
-remain application responsibilities. Importing `breeze` does not load web dependencies.
+owned by the library caller. Importing `breeze` does not load web or GPU backends.
+
+## Model APIs
+
+| Public class | Model | Scope |
+|---|---|---|
+| `Qwen35CpuModel` | Dense Qwen3.5-9B / 27B | Text-only prefill and greedy decoding |
+| `Phi35CpuModel` | Phi-3.5 | Experimental batch-one prefill, 1-8 tokens only |
+| `Qwen35ReferenceModel` | Qwen3.5 | Graph-based development reference |
+| `InferenceSession` | Compatible operator graphs | Graph-based development reference |
+| `Qwen35GpuModel` | Dense Qwen3.5-9B | Optional experimental CUDA prefill and decoding |
+
+Only one active sequence per CPU model is supported. Native settings are
+process-global, so model calls and configuration changes must be serialized,
+even across model instances.
 
 ## Command-line tools
 
-- [serve_breeze.py](serve_breeze.py): local JSON/SSE inference service and browser
-  workspace; `--demo` previews the UX and `--check` verifies prerequisites.
 - [generate_qwen35.py](generate_qwen35.py): standalone CPU generation with
   progressive terminal output and separate load/prefill/decode timing.
 - [generate_qwen35_gpu.py](generate_qwen35_gpu.py): optional dense-9B CUDA
@@ -154,6 +126,33 @@ Measured relative generation throughput (Breeze / baseline):
 |---|---:|
 | ONNX Runtime (ORT) | **1.62x** |
 | llama.cpp | **1.01x** |
+
+## Optional HTTP API and playground
+
+[serve_breeze.py](serve_breeze.py) exposes streaming chat and a browser interface:
+
+```bash
+.venv/bin/python -m pip install -r requirements-serve.txt
+.venv/bin/python serve_breeze.py --model models/qwen35-27b-cpu/model.onnx
+```
+
+Open <http://127.0.0.1:8080>. Use `--port 8081` if needed and forward the port for
+remote workspaces. `--demo` replaces `--model` with a scripted, model-free preview.
+See the [deployment and API guide](SERVICE.md) for authentication and configuration.
+
+## Tests
+
+After building the native library:
+
+```bash
+.venv/bin/python -m pip install -r requirements-dev.txt
+OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=1 .venv/bin/python -B -m pytest tests -q
+node --test tests/test_web.mjs
+```
+
+The tests use small fixtures rather than pretrained models. JavaScript tests
+require Node.js 20+; the CPU engine does not. Optional browser-test setup is in
+[SERVICE.md](SERVICE.md#validate-a-deployment).
 
 ## Layout
 
