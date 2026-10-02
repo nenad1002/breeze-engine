@@ -1,0 +1,25 @@
+[Unit]
+Description=Breeze local CPU inference
+After=network.target
+
+[Service]
+Type=simple
+User=breeze
+Group=breeze
+WorkingDirectory=/opt/breeze
+# Optional root-managed file containing BREEZE_API_KEY, never checked into Git.
+EnvironmentFile=-/etc/breeze/environment
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=OPENBLAS_NUM_THREADS=1
+ExecStart=/opt/breeze/.venv/bin/python -B /opt/breeze/serve_breeze.py --model /srv/models/qwen35/model.onnx --model-id team-assistant --threads 8
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=180
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

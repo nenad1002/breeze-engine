@@ -1,0 +1,7 @@
+numpy>=1.26
+onnx>=1.17
+tokenizers>=0.21
+
+# Tests: pip install pytest
+# Local embedding extraction additionally needs safetensors.
+# Optional GPU experiments use torch and triton.

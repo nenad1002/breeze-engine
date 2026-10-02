@@ -1,0 +1,14 @@
+.git
+.venv
+**/__pycache__
+.pytest_cache
+models
+results
+build
+dist
+**/*.so
+**/*.npz
+**/*.npy
+.env
+.env.*
+paper

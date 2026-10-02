@@ -1,0 +1,28 @@
+services:
+  breeze:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    init: true
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      BREEZE_API_KEY: "${BREEZE_API_KEY:?Set a random deployment API key externally}"
+    volumes:
+      - type: bind
+        source: "${BREEZE_MODEL_DIR:?Set the prepared model directory}"
+        target: /models
+        read_only: true
+    command:
+      - --model
+      - /models/model.onnx
+      - --host
+      - 0.0.0.0
+      - --model-id
+      - team-assistant
+      - --threads
+      - "${BREEZE_THREADS:-8}"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 3m
+    restart: unless-stopped
